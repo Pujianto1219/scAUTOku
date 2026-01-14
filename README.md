@@ -18,7 +18,7 @@ Automated setup script for deploying SSH/VPN services on Linux-based VPS. Simpli
 ```bash
 apt-get update && \
 apt-get --reinstall --fix-missing install -y whois bzip2 gzip coreutils wget screen nscd && \
-wget --inet4-only --no-check-certificate -O setup.sh https://raw.githubusercontent.com/hidessh99/scAUTOku/refs/heads/main/setup.sh && \
+wget --inet4-only --no-check-certificate -O setup.sh https://raw.githubusercontent.com/Pujianto1219/scAUTOku/refs/heads/main/setup.sh && \
 chmod +x setup.sh && \
 screen -S setup ./setup.sh
 ```
