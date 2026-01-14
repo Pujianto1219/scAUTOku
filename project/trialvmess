@@ -1,0 +1,165 @@
+#!/bin/bash
+
+# Valid Script
+ipsaya=$(curl -sS ipv4.icanhazip.com)
+data_server=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | sed -e 's/< Date: //')
+date_list=$(date +"%Y-%m-%d" -d "$data_server")
+
+# Rainbow output disabled
+
+# Variables
+ip=$(wget -qO- ipv4.icanhazip.com)
+srv_date=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | sed -e 's/< Date: //')
+date=$(date +"%Y-%m-%d" -d "$srv_date")
+city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
+pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Pubkey not available")
+ns_domain=$(cat /etc/xray/dns 2>/dev/null || echo "NS domain not set")
+domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
+uuid=$(cat /proc/sys/kernel/random/uuid)
+
+
+clear
+
+# User data input
+echo "┌─────────────────────────────────────────┐"
+echo "│        Script by XTRIMER-TUNNEL         │"
+echo "│     Input xray/vmess account deps       │"
+echo "│            Enter User Data              │"
+echo "└─────────────────────────────────────────┘"
+
+# Generate random username
+# user=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
+
+# echo "   Username : $user"
+
+while true; do
+    read -p "   Name: " user
+    if [[ ${#user} -lt 3 || ! "$user" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        printf "\033[1A\033[0J"
+        echo -e "${red}   Username cannot be empty${reset}"
+        continue
+    fi
+    if grep -q "^### $user " /etc/xray/vmess/config.json; then
+        random_number=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 5)
+        user="${random_number}${user}"
+        echo -e "${yellow}   Username already exists. New username used: $user${reset}"
+        break
+    else
+        break
+    fi
+done
+until [[ $duration =~ ^[0-9]+$ ]]; do
+    read -p "   Active period (minutes): " duration
+    if [[ -z "$duration" ]]; then
+        echo -e "${red}   Active period cannot be empty${reset}"
+    fi
+done
+
+# Account creation process
+exp=$(date -d "+$duration minutes" +"%Y-%m-%d %H:%M:%S")
+if [ ! -f "/etc/xray/vmess/config.json" ]; then
+    echo "Configuration file not found. Creating new file..."
+    echo '{"inbounds": []}' > /etc/xray/vmess/config.json
+fi
+
+if ! sed -i '/#vmess$/a\### '"$user $exp"'\
+},{"id": "'""$uuid""'","email": "'""$user""'"' /etc/xray/vmess/config.json; then
+    echo -e "${red}Failed to add user to config.json${reset}"
+    exit 1
+fi
+if ! sed -i '/#vmessgrpc$/a\### '"$user $exp"'\
+},{"id": "'""$uuid""'","email": "'""$user""'"' /etc/xray/vmess/config.json; then
+    echo -e "${red}Failed to add user to config.json (GRPC)${reset}"
+    exit 1
+fi
+
+# Create configuration files
+cat >/etc/xray/$user-tls.json <<EOF
+{
+    "v": "2",
+    "ps": "$user WS (CDN) TLS",
+    "add": "${domain}",
+    "port": "443",
+    "id": "${uuid}",
+    "aid": "0",
+    "net": "ws",
+    "path": "/whatever/vmess",
+    "type": "none",
+    "host": "${domain}",
+    "tls": "tls"
+}
+EOF
+
+cat >/etc/xray/$user-non.json <<EOF
+{
+    "v": "2",
+    "ps": "$user WS (CDN) NTLS",
+    "add": "${domain}",
+    "port": "80",
+    "id": "${uuid}",
+    "aid": "0",
+    "net": "ws",
+    "path": "/whatever/vmess",
+    "type": "none",
+    "host": "${domain}",
+    "tls": "none"
+}
+EOF
+
+cat >/etc/xray/$user-grpc.json <<EOF
+{
+    "v": "2",
+    "ps": "$user (SNI) GRPC",
+    "add": "${domain}",
+    "port": "443",
+    "id": "${uuid}",
+    "aid": "0",
+    "net": "grpc",
+    "path": "vmess-grpc",
+    "type": "none",
+    "host": "${domain}",
+    "tls": "tls"
+}
+EOF
+
+# Generate Vmess links
+tmux new-session -d -s "trial_vmess_$user" "trial trialws $user $duration"
+vmess_tls="vmess://$(base64 -w 0 /etc/xray/$user-tls.json)"
+vmess_non="vmess://$(base64 -w 0 /etc/xray/$user-non.json)"
+vmess_grpc="vmess://$(base64 -w 0 /etc/xray/$user-grpc.json)"
+
+# Restart service
+if ! systemctl restart vmess@config; then
+    echo -e "${red}Failed to restart vmess service${reset}"
+    exit 1
+fi
+
+# Display account information
+clear 
+echo -e "——————————————————————————————————————"
+echo -e  "    Xray/Vmess Account    "
+echo -e "——————————————————————————————————————"
+echo -e "Remarks      : ${user}"
+echo -e "Host Server  : ${domain}"
+echo -e "Location     : $city"
+echo -e "Port TLS     : 443"
+echo -e "Port non TLS : 80, 8080"
+echo -e "Port DNS     : 443, 53"
+echo -e "Port GRPC    : 443"
+echo -e "AlterId      : 0"
+echo -e "Security     : auto"
+echo -e "Network      : WS or gRPC"
+echo -e "Path         : /whatever/vmess "
+echo -e "ServiceName  : vmess-grpc"
+echo -e "User ID      : ${uuid}"
+echo -e "Public Key   : ${pubkey}"
+echo -e "————————————————————————————————————————————————————"
+echo -e "TLS Link    : ${vmess_tls}"
+echo -e "————————————————————————————————————————————————————"
+echo -e "NTLS Link   : ${vmess_non}"
+echo -e "————————————————————————————————————————————————————"
+echo -e "GRPC Link   : ${vmess_grpc}"
+echo -e "————————————————————————————————————————————————————"
+echo -e "OpenClash Format : https://${domain}:81/vmess-$user.txt"
+echo -e "————————————————————————————————————————————————————"
+echo -e "Expires On  : $duration minutes"
